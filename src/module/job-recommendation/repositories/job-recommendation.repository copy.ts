@@ -1,29 +1,11 @@
+import "dotenv/config";
 import { Pool } from "pg";
-import { drizzle } from "drizzle-orm/node-postgres";
-// import { JobPost } from "../../../types";
-import { sql } from "drizzle-orm";
-
-interface JobPost extends Record<string, unknown> {
-  id: string;
-  title: string;
-  description_text?: string;
-  job_function?: string;
-  posted_at?: Date;
-  expire_at?: Date;
-  relevance_score?: number;
-  fts_score?: number;
-  title_similarity?: number;
-  exact_skill_matches?: number;
-  fuzzy_skill_matches?: number;
-}
 
 export class JobRecommendationRepository {
-  private db: ReturnType<typeof drizzle>;
   private pool: Pool;
 
   constructor(pool: Pool) {
     this.pool = pool;
-    this.db = drizzle(pool);
   }
 
   /**
@@ -34,7 +16,7 @@ export class JobRecommendationRepository {
     jobTitle: string,
     skills: string[],
     limit: number = 50
-  ): Promise<JobPost[]> {
+  ): Promise<any[]> {
     // Normalize inputs
     const normalizedTitle = this.normalizeText(jobTitle);
     const normalizedSkills = skills.map((s) => this.normalizeText(s));
@@ -47,29 +29,23 @@ export class JobRecommendationRepository {
       .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
       .join("|");
 
-    // Execute complex query using sql template
-    // Note: Drizzle doesn't have direct support for all PostgreSQL features,
-    // so we use raw SQL for complex queries like this
-    const result = await this.db.execute<JobPost>(sql`
+    const query = `
       WITH skill_matches AS (
         SELECT 
           jp.*,
           -- Full-text search ranking (weighted by field importance)
           (
-            ts_rank_cd(fts_title, websearch_to_tsquery('english', ${normalizedTitle})) * 4.0 +
-            ts_rank_cd(fts_description_text, websearch_to_tsquery('english', ${searchTerms})) * 2.0
+            ts_rank_cd(fts_title, websearch_to_tsquery('english', $1)) * 4.0 +
+            ts_rank_cd(fts_description_text, websearch_to_tsquery('english', $2)) * 2.0
           ) as fts_score,
           
           -- Title similarity using trigram
-          similarity(LOWER(title), ${normalizedTitle.toLowerCase()}) as title_similarity,
+          similarity(LOWER(title), $3) as title_similarity,
           
-          -- Exact skill match count using unnest
+          -- Exact skill match count
           (
             SELECT COUNT(*)
-            FROM unnest(${sql`ARRAY[${sql.join(
-              normalizedSkills.map((s) => sql`${s}`),
-              sql`, `
-            )}]::text[]`}) AS skill
+            FROM unnest($4::text[]) AS skill
             WHERE LOWER(jp.description_text) ~ LOWER(skill)
                OR LOWER(jp.title) ~ LOWER(skill)
                OR LOWER(COALESCE(jp.job_function, '')) ~ LOWER(skill)
@@ -78,10 +54,7 @@ export class JobRecommendationRepository {
           -- Fuzzy skill match count
           (
             SELECT COUNT(DISTINCT skill)
-            FROM unnest(${sql`ARRAY[${sql.join(
-              normalizedSkills.map((s) => sql`${s}`),
-              sql`, `
-            )}]::text[]`}) AS skill
+            FROM unnest($4::text[]) AS skill
             WHERE LOWER(jp.description_text) LIKE '%' || LOWER(skill) || '%'
           ) as fuzzy_skill_matches
           
@@ -91,13 +64,13 @@ export class JobRecommendationRepository {
           (jp.expire_at IS NULL OR jp.expire_at > CURRENT_DATE)
           AND (
             -- Match on full-text search
-            fts @@ websearch_to_tsquery('english', ${searchTerms})
+            fts @@ websearch_to_tsquery('english', $2)
             OR
-            -- Match on title similarity (requires pg_trgm extension)
-            similarity(LOWER(jp.title), ${normalizedTitle.toLowerCase()}) > 0.15
+            -- Match on title similarity
+            similarity(LOWER(jp.title), $3) > 0.15
             OR
             -- Match on skills in description
-            (${skillPattern !== "" ? sql`LOWER(jp.description_text) ~ ${skillPattern}` : sql`FALSE`})
+            ($5 != '' AND LOWER(jp.description_text) ~ $5)
           )
       )
       SELECT 
@@ -129,29 +102,35 @@ export class JobRecommendationRepository {
         -- Filter out very low scores
         (fts_score > 0.001 OR title_similarity > 0.15 OR exact_skill_matches > 0)
       ORDER BY relevance_score DESC
-      LIMIT ${limit}
-    `);
+      LIMIT $6;
+    `;
 
-    return result.rows as JobPost[];
+    const values = [
+      normalizedTitle,
+      searchTerms,
+      normalizedTitle.toLowerCase(),
+      normalizedSkills,
+      skillPattern,
+      limit
+    ];
+
+    const result = await this.pool.query(query, values);
+    return result.rows;
   }
 
   /**
    * Get job details by IDs
-   * This uses Drizzle's query builder for simpler queries
    */
-  async getJobsByIds(jobIds: string[]): Promise<JobPost[]> {
+  async getJobsByIds(jobIds: string[]): Promise<any[]> {
     if (jobIds.length === 0) return [];
 
-    // Using raw SQL for ANY operator since Drizzle's inArray would generate IN clause
-    const result = await this.db.execute<JobPost>(sql`
+    const query = `
       SELECT * FROM job_posts
-      WHERE id = ANY(${sql`ARRAY[${sql.join(
-        jobIds.map((id) => sql`${id}::uuid`),
-        sql`, `
-      )}]`})
-    `);
+      WHERE id = ANY($1::uuid[])
+    `;
 
-    return result.rows as JobPost[];
+    const result = await this.pool.query(query, [jobIds]);
+    return result.rows;
   }
 
   /**
@@ -163,12 +142,5 @@ export class JobRecommendationRepository {
       .replace(/[^\w\s+#]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-  }
-
-  /**
-   * Close the database connection
-   */
-  async close(): Promise<void> {
-    await this.pool.end();
   }
 }

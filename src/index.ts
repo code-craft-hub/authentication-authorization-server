@@ -1,8 +1,9 @@
+import "dotenv/config";
 import { setupJobRecommendationApp } from "./app";
 
 if (require.main === module) {
   const app = setupJobRecommendationApp();
-  const PORT = process.env.PORT || 3400;
+  const PORT = process.env.PORT || 4005;
 
   app.listen(PORT, () => {
     console.log(`Job Recommendation Engine running on port ${PORT}`);
