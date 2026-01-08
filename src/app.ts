@@ -1,63 +1,55 @@
-import express, { Application } from 'express';
-import helmet from 'helmet';
-import cors from 'cors';
-import { env } from './config/env';
-import routes from './routes';
-import { errorHandler } from './middlewares/error.middleware';
-import { requestLogger } from './middlewares/request-logger.middleware';
-import { apiRateLimiter } from './middlewares/ratelimit.middleware';
-
-export const createApp = (): Application => {
+import express,{ Express, Request, Response, NextFunction } from "express";
+import { Pool } from "pg";
+import { JobRecommendationModule } from "./module/job-recommendation/module";
+export function setupJobRecommendationApp(): Express {
   const app = express();
 
-  // Security middleware
-  app.use(helmet());
-  
-  // CORS configuration
-  app.use(cors({
-    origin: env.FRONTEND_URL,
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  }));
+  // Middleware
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
 
-  // Body parsing middleware
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+  // CORS
+  app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    if (req.method === "OPTIONS") {
+      res.sendStatus(200);
+      return;
+    }
+    next();
+  });
 
-  // Request logging
-  app.use(requestLogger);
+  // Database connection
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    // ssl:
+    //   process.env.NODE_ENV === "production"
+    //     ? { rejectUnauthorized: false }
+    //     : false,
+  });
 
-  // Rate limiting for API routes
-  app.use(`/api/${env.API_VERSION}`, apiRateLimiter);
+  // Initialize recommendation module
+  const recommendationModule = new JobRecommendationModule(pool);
+  app.use("/api", recommendationModule.getRouter());
 
-  // API routes
-  app.use(`/api/${env.API_VERSION}`, routes);
-
-  // Root route
-  app.get('/', (req, res) => {
+  // Health check
+  app.get("/health", (req, res) => {
     res.json({
-      success: true,
-      message: 'Enterprise Authentication & Referral API',
-      version: env.API_VERSION,
-      environment: env.NODE_ENV,
+      status: "ok",
       timestamp: new Date().toISOString(),
+      method: req.method,
     });
   });
 
-  // 404 handler
-  app.use((req, res) => {
-    res.status(404).json({
+  // Error handling
+  app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+    console.error("Error:", err);
+    res.status(500).json({
       success: false,
-      error: 'Route not found',
-      path: req.path,
+      error: err.message || "Internal server error",
     });
   });
-
-  // Global error handler
-  app.use(errorHandler);
 
   return app;
-};
-
-// 
+}

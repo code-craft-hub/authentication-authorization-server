@@ -1,97 +1,14 @@
-import { createApp } from './app';
-import { env } from './config/env';
-import { dbConnection } from './config/database';
-import { redisConnection } from './config/redis';
-import { logger } from './utils/logger';
-import { initializeSuperAdmin } from './utils/seed';
+import { setupJobRecommendationApp } from "./app";
 
-const startServer = async () => {
-  try {
-    // Check database connection
-    const dbHealthy = await dbConnection.healthCheck();
-    if (!dbHealthy) {
-      throw new Error('Database health check failed');
-    }
+if (require.main === module) {
+  const app = setupJobRecommendationApp();
+  const PORT = process.env.PORT || 3400;
 
-    // Check Redis connection
-    const redisHealthy = await redisConnection.healthCheck();
-    if (!redisHealthy) {
-      throw new Error('Redis health check failed');
-    }
-
-    // Initialize super admin if configured
-    if (env.SUPER_ADMIN_EMAIL && env.SUPER_ADMIN_PASSWORD) {
-      await initializeSuperAdmin();
-    }
-
-    // Create and start Express app
-    const app = createApp();
-    
-    const server = app.listen(env.PORT, () => {
-      logger.info(`
-╔════════════════════════════════════════════════════════════╗
-║                                                            ║
-║   🚀 Enterprise Auth System - FAANG+ Standard             ║
-║                                                            ║
-║   Environment: ${env.NODE_ENV.padEnd(45)}║
-║   Port:        ${String(env.PORT).padEnd(45)}║
-║   API Version: ${env.API_VERSION.padEnd(45)}║
-║                                                            ║
-║   🔗 Server:    http://localhost:${env.PORT.toString().padEnd(29)}║
-║   📚 API Docs:  http://localhost:${env.PORT}/api/${env.API_VERSION.padEnd(17)}║
-║                                                            ║
-║   ✅ Database:  Connected                                  ║
-║   ✅ Redis:     Connected                                  ║
-║                                                            ║
-╚════════════════════════════════════════════════════════════╝
-      `);
-    });
-
-    // Graceful shutdown
-    const gracefulShutdown = async (signal: string) => {
-      logger.info(`${signal} received. Starting graceful shutdown...`);
-      
-      server.close(async () => {
-        logger.info('HTTP server closed');
-        
-        try {
-          await dbConnection.close();
-          await redisConnection.close();
-          logger.info('All connections closed. Exiting process.');
-          process.exit(0);
-        } catch (error) {
-          logger.error('Error during shutdown:', error);
-          process.exit(1);
-        }
-      });
-
-      // Force shutdown after 10 seconds
-      setTimeout(() => {
-        logger.error('Forced shutdown after timeout');
-        process.exit(1);
-      }, 10000);
-    };
-
-    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-  } catch (error) {
-    logger.error('Failed to start server:', error);
-    process.exit(1);
-  }
-};
-
-// Start the server
-startServer();
-
-// Handle unhandled rejections
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
-});
-
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-  logger.error('Uncaught Exception:', error);
-  process.exit(1);
-});
+  app.listen(PORT, () => {
+    console.log(`Job Recommendation Engine running on port ${PORT}`);
+    console.log(`Algorithm: Multi-strategy hybrid matching v2.0`);
+    console.log(
+      `Features: FTS, trigram similarity, skill matching, recency boost`
+    );
+  });
+}

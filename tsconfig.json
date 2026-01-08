@@ -4,7 +4,7 @@
     "module": "commonjs",
     "lib": ["ES2022"],
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": "pgsrc",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -19,7 +19,7 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "allowSyntheticDefaultImports": true,
-    "baseUrl": "./src",
+    "baseUrl": "pgsrc",
     "paths": {
       "@/*": ["*"],
       "@config/*": ["config/*"],
@@ -33,6 +33,6 @@
       "@types/*": ["types/*"]
     }
   },
-  "include": ["src/**/*"],
+  "include": ["pgsrc/**/*"],
   "exclude": ["node_modules", "dist", "**/*.spec.ts", "**/*.test.ts"]
 }
