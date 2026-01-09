@@ -297,61 +297,75 @@ export const recommendationFeedback = pgTable(
   ]
 );
 
-/**
- * NEW: User profiles - stores user preferences and search history
- */
-export const userProfiles = pgTable(
-  "user_profiles",
-  {
-    id: uuid().defaultRandom().primaryKey().notNull(),
-    userId: text("user_id").notNull().unique(),
-    currentJobTitle: text("current_job_title"),
-    desiredJobTitle: text("desired_job_title"),
-    skills: jsonb("skills").$type<string[]>(),
-    experienceLevel: text("experience_level"), // junior, mid, senior, lead, etc.
-    preferredLocations: jsonb("preferred_locations").$type<string[]>(),
-    preferredEmploymentTypes: jsonb("preferred_employment_types").$type<
-      string[]
-    >(),
-    salaryExpectation: jsonb("salary_expectation").$type<{
-      min?: number;
-      max?: number;
-      currency?: string;
-    }>(),
-    excludedCompanies: jsonb("excluded_companies").$type<string[]>(),
-    preferences: jsonb("preferences").$type<Record<string, any>>(),
-    lastActive: timestamp("last_active", {
-      withTimezone: true,
-      mode: "string",
-    }).defaultNow(),
-    createdAt: timestamp("created_at", {
-      withTimezone: true,
-      mode: "string",
-    }).defaultNow(),
-    updatedAt: timestamp("updated_at", {
-      withTimezone: true,
-      mode: "string",
-    }).defaultNow(),
-  },
-  (table) => [
-    index("user_profiles_user_id_idx").using(
-      "btree",
-      table.userId.asc().nullsLast().op("text_ops")
-    ),
-    index("user_profiles_last_active_idx").using(
-      "btree",
-      table.lastActive.asc().nullsLast()
-    ),
-  ]
-);
 
+
+
+// export const users = pgTable(
+//   "users",
+//   {
+//     id: varchar({ length: 128 }).primaryKey().notNull(),
+//     email: varchar({ length: 255 }).notNull(),
+//     referralCode: varchar("referral_code", { length: 20 }).notNull(),
+//     referredBy: varchar("referred_by", { length: 20 }),
+//     createdAt: timestamp("created_at", {
+//       withTimezone: true,
+//       mode: "string",
+//     }).default(sql`CURRENT_TIMESTAMP`),
+//     updatedAt: timestamp("updated_at", {
+//       withTimezone: true,
+//       mode: "string",
+//     }).default(sql`CURRENT_TIMESTAMP`),
+//   },
+//   (table) => [
+//     index("idx_users_email").using(
+//       "btree",
+//       table.email.asc().nullsLast().op("text_ops")
+//     ),
+//     index("idx_users_referral_code").using(
+//       "btree",
+//       table.referralCode.asc().nullsLast().op("text_ops")
+//     ),
+//     index("idx_users_referred_by").using(
+//       "btree",
+//       table.referredBy.asc().nullsLast().op("text_ops")
+//     ),
+//     foreignKey({
+//       columns: [table.referredBy],
+//       foreignColumns: [table.referralCode],
+//       name: "fk_referred_by",
+//     }).onDelete("set null"),
+//     unique("users_email_key").on(table.email),
+//     unique("users_referral_code_key").on(table.referralCode),
+//   ]
+// );
+
+/**
+ * Users table - Core authentication and user management
+ */
 export const users = pgTable(
   "users",
   {
     id: varchar({ length: 128 }).primaryKey().notNull(),
     email: varchar({ length: 255 }).notNull(),
+    passwordHash: varchar("password_hash", { length: 255 }).notNull(),
+    firstName: varchar("first_name", { length: 100 }),
+    lastName: varchar("last_name", { length: 100 }),
     referralCode: varchar("referral_code", { length: 20 }).notNull(),
     referredBy: varchar("referred_by", { length: 20 }),
+    emailVerified: timestamp("email_verified", {
+      withTimezone: true,
+      mode: "string",
+    }),
+    resetToken: varchar("reset_token", { length: 255 }),
+    resetTokenExpiry: timestamp("reset_token_expiry", {
+      withTimezone: true,
+      mode: "string",
+    }),
+    lastLogin: timestamp("last_login", {
+      withTimezone: true,
+      mode: "string",
+    }),
+    isActive: varchar("is_active", { length: 10 }).default("true").notNull(),
     createdAt: timestamp("created_at", {
       withTimezone: true,
       mode: "string",
@@ -381,6 +395,108 @@ export const users = pgTable(
     }).onDelete("set null"),
     unique("users_email_key").on(table.email),
     unique("users_referral_code_key").on(table.referralCode),
+  
+  ]
+);
+
+/**
+ * User profiles table - Extended user information for job recommendations
+ * NOTE: userId references users.id
+ */
+export const userProfiles = pgTable(
+  "user_profiles",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    userId: varchar("user_id", { length: 128 }).notNull().unique(),
+    currentJobTitle: text("current_job_title"),
+    desiredJobTitle: text("desired_job_title"),
+    skills: jsonb("skills").$type<string[]>(),
+    experienceLevel: text("experience_level"), // junior, mid, senior, lead, etc.
+    preferredLocations: jsonb("preferred_locations").$type<string[]>(),
+    preferredEmploymentTypes: jsonb("preferred_employment_types").$type<
+      string[]
+    >(),
+    salaryExpectation: jsonb("salary_expectation").$type<{
+      min?: number;
+      max?: number;
+      currency?: string;
+    }>(),
+    excludedCompanies: jsonb("excluded_companies").$type<string[]>(),
+    bio: text("bio"),
+    yearsOfExperience: text("years_of_experience"),
+    education: jsonb("education").$type<
+      Array<{
+        degree: string;
+        institution: string;
+        year: string;
+      }>
+    >(),
+    certifications: jsonb("certifications").$type<string[]>(),
+    preferences: jsonb("preferences").$type<Record<string, any>>(),
+    lastActive: timestamp("last_active", {
+      withTimezone: true,
+      mode: "string",
+    }).defaultNow(),
+    createdAt: timestamp("created_at", {
+      withTimezone: true,
+      mode: "string",
+    }).defaultNow(),
+    updatedAt: timestamp("updated_at", {
+      withTimezone: true,
+      mode: "string",
+    }).defaultNow(),
+  },
+  (table) => [
+    index("user_profiles_user_id_idx").using(
+      "btree",
+      table.userId.asc().nullsLast().op("text_ops")
+    ),
+    index("user_profiles_last_active_idx").using(
+      "btree",
+      table.lastActive.asc().nullsLast()
+    ),
+    foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: "user_profiles_user_id_users_id_fk",
+    }).onDelete("cascade"),
+  ]
+);
+
+
+
+/**
+ * Refresh tokens table - For JWT refresh token management
+ */
+export const refreshTokens = pgTable(
+  "refresh_tokens",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    userId: varchar("user_id", { length: 128 }).notNull(),
+    token: varchar({ length: 500 }).notNull().unique(),
+    expiresAt: timestamp("expires_at", {
+      withTimezone: true,
+      mode: "string",
+    }).notNull(),
+    createdAt: timestamp("created_at", {
+      withTimezone: true,
+      mode: "string",
+    }).defaultNow(),
+  },
+  (table) => [
+    index("refresh_tokens_user_id_idx").using(
+      "btree",
+      table.userId.asc().nullsLast().op("text_ops")
+    ),
+    index("refresh_tokens_token_idx").using(
+      "btree",
+      table.token.asc().nullsLast().op("text_ops")
+    ),
+    foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: "refresh_tokens_user_id_users_id_fk",
+    }).onDelete("cascade"),
   ]
 );
 
