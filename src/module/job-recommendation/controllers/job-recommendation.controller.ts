@@ -142,7 +142,7 @@ export class JobRecommendationController {
   ): Promise<void> => {
     try {
       const { jobId, interactionType, metadata } = req.body;
-
+      console.log("Tracking interaction:", { jobId, interactionType, metadata });
       // Validate required fields
       if (!jobId || typeof jobId !== "string") {
         res.status(400).json({

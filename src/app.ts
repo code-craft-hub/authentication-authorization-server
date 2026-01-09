@@ -1,10 +1,11 @@
-// src/app.ts
+// src/app.ts - UPDATED VERSION WITH AUTH MODULE
 import express, { Express, Request, Response, NextFunction } from "express";
 import { Pool } from "pg";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import compression from "compression";
 import { JobRecommendationModule } from "./module/job-recommendation/module";
+import { AuthModule } from "./module/auth/module";
 import {
   errorMiddleware,
   notFoundMiddleware,
@@ -13,8 +14,6 @@ import {
 /**
  * Setup and configure Express application
  * with all necessary middleware and routes
- * 
- * @returns Configured Express application
  */
 export function setupJobRecommendationApp(): Express {
   const app = express();
@@ -22,18 +21,10 @@ export function setupJobRecommendationApp(): Express {
   // ============================================
   // Security & Performance Middleware
   // ============================================
-  
-  // Helmet: Security headers
   app.use(helmet());
-  
-  // Compression: Gzip responses
   app.use(compression());
-
-  // Body parsers
   app.use(express.json({ limit: "10mb" }));
   app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-  
-  // Cookie parser for session management
   app.use(cookieParser());
 
   // ============================================
@@ -89,13 +80,11 @@ export function setupJobRecommendationApp(): Express {
       process.env.NODE_ENV === "production"
         ? { rejectUnauthorized: false }
         : undefined,
-    // Connection pool configuration
-    max: 20, // Maximum connections
+    max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 2000,
   });
 
-  // Test database connection
   pool.on("connect", () => {
     console.log("✓ Database connected");
   });
@@ -107,9 +96,11 @@ export function setupJobRecommendationApp(): Express {
   // ============================================
   // Initialize Modules
   // ============================================
+  const authModule = new AuthModule(pool);
   const recommendationModule = new JobRecommendationModule(pool);
   
   // Mount module routes
+  app.use("/api/auth", authModule.getRouter());
   app.use("/api", recommendationModule.getRouter());
 
   // ============================================
@@ -117,7 +108,6 @@ export function setupJobRecommendationApp(): Express {
   // ============================================
   app.get("/health", async (req, res) => {
     try {
-      // Check database connection
       await pool.query("SELECT 1");
       
       res.json({
@@ -126,7 +116,10 @@ export function setupJobRecommendationApp(): Express {
         uptime: process.uptime(),
         memory: process.memoryUsage(),
         database: "connected",
-        cache: recommendationModule.getCacheService().getStats(),
+        modules: {
+          auth: "active",
+          recommendations: "active",
+        },
       });
     } catch (error) {
       res.status(503).json({
@@ -141,36 +134,43 @@ export function setupJobRecommendationApp(): Express {
     res.json({
       name: "Job Recommendation Engine API",
       version: "3.0",
-      algorithm: "Multi-strategy hybrid matching with personalization",
-      features: [
-        "Full-text search",
-        "Trigram similarity matching",
-        "Skill-based matching",
-        "Personalization engine",
-        "View tracking & history",
-        "User profiles",
-        "Interaction analytics",
-        "Response caching",
-      ],
-      endpoints: {
-        recommendations: "POST /api/recommendations",
-        interactions: "POST /api/interactions",
-        feedback: "POST /api/feedback",
-        profile: "GET /api/profile",
-        health: "GET /health",
+      modules: {
+        auth: {
+          endpoints: {
+            signup: "POST /api/auth/signup",
+            signin: "POST /api/auth/signin",
+            refresh: "POST /api/auth/refresh",
+            signout: "POST /api/auth/signout",
+            me: "GET /api/auth/me",
+            updateUser: "PATCH /api/auth/user",
+            updateProfile: "PATCH /api/auth/profile",
+            changePassword: "POST /api/auth/change-password",
+            deleteAccount: "DELETE /api/auth/account",
+          },
+        },
+        recommendations: {
+          endpoints: {
+            recommendations: "POST /api/recommendations",
+            interactions: "POST /api/interactions",
+            feedback: "POST /api/feedback",
+          },
+        },
       },
-      documentation: "/api-docs", // TODO: Add Swagger/OpenAPI
+      features: [
+        "Email/Password Authentication",
+        "JWT with Refresh Tokens",
+        "User Profile Management",
+        "Personalized Job Recommendations",
+        "View Tracking & History",
+        "Interaction Analytics",
+      ],
     });
   });
 
   // ============================================
   // Error Handling
   // ============================================
-  
-  // 404 handler (must be before error middleware)
   app.use(notFoundMiddleware);
-  
-  // Global error handler (must be last)
   app.use(errorMiddleware);
 
   // ============================================
@@ -180,6 +180,7 @@ export function setupJobRecommendationApp(): Express {
     console.log("SIGTERM received, shutting down gracefully...");
     
     try {
+      await authModule.cleanup();
       await recommendationModule.cleanup();
       await pool.end();
       console.log("Cleanup completed");

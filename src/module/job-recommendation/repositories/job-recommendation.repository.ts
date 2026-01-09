@@ -7,7 +7,7 @@ import { JobPost, RecommendationFilters, UserProfile } from "../../../types";
 /**
  * Repository layer for job recommendations
  * Handles all database operations with optimized queries
- * 
+ *
  * @class JobRecommendationRepository
  */
 export class JobRecommendationRepository {
@@ -22,7 +22,7 @@ export class JobRecommendationRepository {
   /**
    * Multi-strategy job search with personalization
    * Excludes jobs the user has already viewed/interacted with
-   * 
+   *
    * @param jobTitle - User's target job title
    * @param skills - User's skills array
    * @param userId - Optional user ID for personalization
@@ -41,19 +41,19 @@ export class JobRecommendationRepository {
     const normalizedTitle = this.normalizeText(jobTitle);
     const normalizedSkills = skills.map((s) => this.normalizeText(s));
     const searchTerms = [normalizedTitle, ...normalizedSkills].join(" OR ");
-    
+
     const skillPattern = normalizedSkills
       .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
       .join("|");
 
     // Build WHERE clauses for filters
     const filterConditions: any[] = [];
-    
+
     if (filters?.locations && filters.locations.length > 0) {
       filterConditions.push(
         sql`(${sql.join(
-          filters.locations.map(loc => 
-            sql`LOWER(jp.location) LIKE ${`%${loc.toLowerCase()}%`}`
+          filters.locations.map(
+            (loc) => sql`LOWER(jp.location) LIKE ${`%${loc.toLowerCase()}%`}`
           ),
           sql` OR `
         )})`
@@ -63,7 +63,7 @@ export class JobRecommendationRepository {
     if (filters?.employmentTypes && filters.employmentTypes.length > 0) {
       filterConditions.push(
         sql`jp.employment_type = ANY(${sql`ARRAY[${sql.join(
-          filters.employmentTypes.map(t => sql`${t}`),
+          filters.employmentTypes.map((t) => sql`${t}`),
           sql`, `
         )}]::text[]`})`
       );
@@ -78,22 +78,36 @@ export class JobRecommendationRepository {
     if (filters?.excludeCompanies && filters.excludeCompanies.length > 0) {
       filterConditions.push(
         sql`jp.company_name NOT IN (${sql.join(
-          filters.excludeCompanies.map(c => sql`${c}`),
+          filters.excludeCompanies.map((c) => sql`${c}`),
           sql`, `
         )})`
       );
     }
 
     // Subquery to get viewed/interacted job IDs for this user
-    const viewedJobsSubquery = userId && excludeViewed
-      ? sql`
+    const viewedJobsSubquery =
+      userId && excludeViewed
+        ? sql`
         SELECT DISTINCT job_id 
         FROM job_interactions 
         WHERE user_id = ${userId}
           AND interaction_type IN ('viewed', 'dismissed', 'clicked_apply')
           AND created_at >= CURRENT_DATE - INTERVAL '90 days'
       `
-      : null;
+        : null;
+
+    // const excludeViewQuery = await this.db.execute(sql`SELECT DISTINCT job_id 
+    //     FROM job_interactions 
+    //     WHERE user_id = ${userId}
+    //       AND interaction_type IN ('viewed', 'dismissed', 'clicked_apply')
+    //       AND created_at >= CURRENT_DATE - INTERVAL '90 days'`);
+    console.log(
+      "Exclude Viewed Jobs Subquery:",
+      excludeViewed,
+      userId,
+      // excludeViewQuery,
+      // viewedJobsSubquery?.toString()
+    );
 
     const result = await this.db.execute<JobPost>(sql`
       WITH skill_matches AS (
@@ -131,7 +145,9 @@ export class JobRecommendationRepository {
           ) as fuzzy_skill_matches,
           
           -- User interaction history (if userId provided)
-          ${userId ? sql`
+          ${
+            userId
+              ? sql`
             COALESCE(
               (
                 SELECT COUNT(*)::int 
@@ -151,10 +167,12 @@ export class JobRecommendationRepository {
               ), 
               0
             ) as user_interaction_count
-          ` : sql`
+          `
+              : sql`
             0 as user_saved_count,
             0 as user_interaction_count
-          `}
+          `
+          }
           
         FROM job_posts jp
         WHERE 
@@ -162,9 +180,13 @@ export class JobRecommendationRepository {
           (jp.expire_at IS NULL OR jp.expire_at > CURRENT_DATE)
           
           -- Exclude viewed jobs if requested
-          ${viewedJobsSubquery ? sql`
+          ${
+            viewedJobsSubquery
+              ? sql`
             AND jp.id NOT IN (${viewedJobsSubquery})
-          ` : sql``}
+          `
+              : sql``
+          }
           
           -- Match criteria
           AND (
@@ -174,9 +196,13 @@ export class JobRecommendationRepository {
           )
           
           -- Apply additional filters
-          ${filterConditions.length > 0 ? sql`
+          ${
+            filterConditions.length > 0
+              ? sql`
             AND ${sql.join(filterConditions, sql` AND `)}
-          ` : sql``}
+          `
+              : sql``
+          }
       )
       SELECT 
         *,
@@ -230,7 +256,7 @@ export class JobRecommendationRepository {
     const normalizedTitle = this.normalizeText(jobTitle);
     const normalizedSkills = skills.map((s) => this.normalizeText(s));
     const searchTerms = [normalizedTitle, ...normalizedSkills].join(" OR ");
-    
+
     const result = await this.db.execute<{ count: string }>(sql`
       SELECT COUNT(DISTINCT jp.id)::text as count
       FROM job_posts jp
@@ -261,6 +287,8 @@ export class JobRecommendationRepository {
     sessionId?: string,
     metadata?: Record<string, any>
   ): Promise<void> {
+
+    console.log(`${userId} interacted with ${jobId} as ${interactionType}`);
     await this.db.execute(sql`
       INSERT INTO job_interactions (
         user_id, job_id, interaction_type, session_id, metadata
@@ -276,7 +304,9 @@ export class JobRecommendationRepository {
   async getUserJobInteractions(
     userId: string,
     jobIds: string[]
-  ): Promise<Map<string, { isViewed: boolean; isSaved: boolean; count: number }>> {
+  ): Promise<
+    Map<string, { isViewed: boolean; isSaved: boolean; count: number }>
+  > {
     if (jobIds.length === 0) return new Map();
 
     const result = await this.db.execute<{
@@ -357,7 +387,9 @@ export class JobRecommendationRepository {
   /**
    * Update user profile
    */
-  async upsertUserProfile(profile: Partial<UserProfile> & { userId: string }): Promise<void> {
+  async upsertUserProfile(
+    profile: Partial<UserProfile> & { userId: string }
+  ): Promise<void> {
     await this.db.execute(sql`
       INSERT INTO user_profiles (
         user_id, 
@@ -464,7 +496,9 @@ export class JobRecommendationRepository {
     const row = result.rows[0];
     return {
       topSkills: row?.top_skills ? JSON.parse(row.top_skills) : [],
-      preferredCompanies: row?.preferred_companies ? JSON.parse(row.preferred_companies) : [],
+      preferredCompanies: row?.preferred_companies
+        ? JSON.parse(row.preferred_companies)
+        : [],
       avgInteractionTime: parseFloat(row?.avg_time || "0"),
     };
   }
