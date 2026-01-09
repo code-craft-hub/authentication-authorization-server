@@ -170,6 +170,181 @@ export const jobRecommendations = pgTable(
   ]
 );
 
+/**
+ * NEW: Job views/interactions - tracks which jobs users have viewed or interacted with
+ */
+export const jobInteractions = pgTable(
+  "job_interactions",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    userId: text("user_id").notNull(),
+    jobId: uuid("job_id").notNull(),
+    interactionType: text("interaction_type").notNull(), // viewed, saved, dismissed, clicked_apply, etc.
+    sessionId: text("session_id"), // Track within same session
+    metadata: jsonb("metadata").$type<{
+      timeSpent?: number; // seconds
+      scrollDepth?: number; // percentage
+      source?: string; // recommendation, search, etc.
+    }>(),
+    createdAt: timestamp("created_at", {
+      withTimezone: true,
+      mode: "string",
+    }).defaultNow(),
+  },
+  (table) => [
+    index("job_interactions_user_id_idx").using(
+      "btree",
+      table.userId.asc().nullsLast().op("text_ops")
+    ),
+    index("job_interactions_job_id_idx").using(
+      "btree",
+      table.jobId.asc().nullsLast().op("uuid_ops")
+    ),
+    index("job_interactions_type_idx").using(
+      "btree",
+      table.interactionType.asc().nullsLast().op("text_ops")
+    ),
+    index("job_interactions_created_at_idx").using(
+      "btree",
+      table.createdAt.asc().nullsLast()
+    ),
+    index("job_interactions_session_idx").using(
+      "btree",
+      table.sessionId.asc().nullsLast().op("text_ops")
+    ),
+    foreignKey({
+      columns: [table.jobId],
+      foreignColumns: [jobPosts.id],
+      name: "job_interactions_job_id_job_posts_id_fk",
+    }).onDelete("cascade"),
+    // Composite index for efficient "already viewed" queries
+    index("job_interactions_user_job_idx").on(table.userId, table.jobId),
+  ]
+);
+
+/**
+ * NEW: Search queries - tracks user search patterns for analytics and personalization
+ */
+export const searchQueries = pgTable(
+  "search_queries",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    userId: text("user_id"),
+    sessionId: text("session_id"),
+    jobTitle: text("job_title").notNull(),
+    skills: jsonb("skills").$type<string[]>().notNull(),
+    filters: jsonb("filters").$type<Record<string, any>>(),
+    resultsCount: integer("results_count").default(0),
+    resultsShown: integer("results_shown").default(0),
+    interactionCount: integer("interaction_count").default(0), // How many results user clicked
+    createdAt: timestamp("created_at", {
+      withTimezone: true,
+      mode: "string",
+    }).defaultNow(),
+  },
+  (table) => [
+    index("search_queries_user_id_idx").using(
+      "btree",
+      table.userId.asc().nullsLast().op("text_ops")
+    ),
+    index("search_queries_created_at_idx").using(
+      "btree",
+      table.createdAt.asc().nullsLast()
+    ),
+    index("search_queries_session_idx").using(
+      "btree",
+      table.sessionId.asc().nullsLast().op("text_ops")
+    ),
+  ]
+);
+
+/**
+ * NEW: User feedback on recommendations - explicit feedback for ML training
+ */
+export const recommendationFeedback = pgTable(
+  "recommendation_feedback",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    userId: text("user_id").notNull(),
+    jobId: uuid("job_id").notNull(),
+    feedbackType: text("feedback_type").notNull(), // thumbs_up, thumbs_down, not_relevant, etc.
+    reason: text("reason"), // Optional text explanation
+    metadata: jsonb("metadata").$type<Record<string, any>>(),
+    createdAt: timestamp("created_at", {
+      withTimezone: true,
+      mode: "string",
+    }).defaultNow(),
+  },
+  (table) => [
+    index("recommendation_feedback_user_idx").using(
+      "btree",
+      table.userId.asc().nullsLast().op("text_ops")
+    ),
+    index("recommendation_feedback_job_idx").using(
+      "btree",
+      table.jobId.asc().nullsLast().op("uuid_ops")
+    ),
+    foreignKey({
+      columns: [table.jobId],
+      foreignColumns: [jobPosts.id],
+      name: "recommendation_feedback_job_id_job_posts_id_fk",
+    }).onDelete("cascade"),
+    unique("recommendation_feedback_unique").on(
+      table.userId,
+      table.jobId,
+      table.feedbackType
+    ),
+  ]
+);
+
+/**
+ * NEW: User profiles - stores user preferences and search history
+ */
+export const userProfiles = pgTable(
+  "user_profiles",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    userId: text("user_id").notNull().unique(),
+    currentJobTitle: text("current_job_title"),
+    desiredJobTitle: text("desired_job_title"),
+    skills: jsonb("skills").$type<string[]>(),
+    experienceLevel: text("experience_level"), // junior, mid, senior, lead, etc.
+    preferredLocations: jsonb("preferred_locations").$type<string[]>(),
+    preferredEmploymentTypes: jsonb("preferred_employment_types").$type<
+      string[]
+    >(),
+    salaryExpectation: jsonb("salary_expectation").$type<{
+      min?: number;
+      max?: number;
+      currency?: string;
+    }>(),
+    excludedCompanies: jsonb("excluded_companies").$type<string[]>(),
+    preferences: jsonb("preferences").$type<Record<string, any>>(),
+    lastActive: timestamp("last_active", {
+      withTimezone: true,
+      mode: "string",
+    }).defaultNow(),
+    createdAt: timestamp("created_at", {
+      withTimezone: true,
+      mode: "string",
+    }).defaultNow(),
+    updatedAt: timestamp("updated_at", {
+      withTimezone: true,
+      mode: "string",
+    }).defaultNow(),
+  },
+  (table) => [
+    index("user_profiles_user_id_idx").using(
+      "btree",
+      table.userId.asc().nullsLast().op("text_ops")
+    ),
+    index("user_profiles_last_active_idx").using(
+      "btree",
+      table.lastActive.asc().nullsLast()
+    ),
+  ]
+);
+
 export const users = pgTable(
   "users",
   {

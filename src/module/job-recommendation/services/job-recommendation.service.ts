@@ -28,9 +28,8 @@ export class JobRecommendationService {
       100 // Fetch more than needed for post-processing
     );
 
-    // Extract rows from query result
-    // @ts-ignore
-    const jobs = rawJobs.rows || rawJobs;
+    // Use the jobs array directly
+    const jobs = rawJobs;
 
     // Post-process and enrich results
     const scoredJobs = jobs.map((job: any) =>

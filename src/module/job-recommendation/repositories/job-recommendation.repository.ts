@@ -1,6 +1,5 @@
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
-// import { JobPost } from "../../../types";
 import { sql } from "drizzle-orm";
 
 interface JobPost extends Record<string, unknown> {
